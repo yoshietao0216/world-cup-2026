@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FIFA World Cup 2026 - Live Kalshi Markets</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+<header>
+  <div class="header-content">
+    <h1>FIFA World Cup 2026</h1>
+    <p class="subtitle">United States &bull; Canada &bull; Mexico &mdash; Live Kalshi Market Prices</p>
+  </div>
+  <nav>
+    <button class="nav-btn active" data-view="groups">Group Stage</button>
+    <button class="nav-btn" data-view="thirdplace">Advance Possibility</button>
+    <button class="nav-btn" data-view="knockout">Knockout Bracket</button>
+    <button class="nav-btn" data-view="winner">Tournament Winner</button>
+  </nav>
+</header>
+
+<main>
+  <section id="groups-view" class="view active"></section>
+  <section id="thirdplace-view" class="view"></section>
+  <section id="knockout-view" class="view"></section>
+  <section id="winner-view" class="view"></section>
+</main>
+
+<div id="match-modal" class="modal hidden">
+  <div class="modal-backdrop"></div>
+  <div class="modal-content">
+    <button class="modal-close">&times;</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
