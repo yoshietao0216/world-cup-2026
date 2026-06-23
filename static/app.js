@@ -163,7 +163,10 @@ async function fetchAllKalshiPages(baseUrl) {
 
 async function loadFixtures() {
   try {
-    const resp = await fetch("https://www.thestatsapi.com/world-cup/data/fixtures.json");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const resp = await fetch("https://www.thestatsapi.com/world-cup/data/fixtures.json", { signal: controller.signal });
+    clearTimeout(timeout);
     const data = await resp.json();
     fixturesData = data.fixtures || [];
   } catch {
@@ -1018,14 +1021,28 @@ async function init() {
   document.getElementById("groups-view").innerHTML = `<div class="loading-spinner">Loading World Cup data</div>`;
 
   await loadFixtures();
-  await refreshData();
+  if (fixturesData.length === 0) fixturesData = generateFallbackFixtures();
+
+  try {
+    await refreshData();
+  } catch (e) {
+    console.error("Initial data load failed:", e);
+    renderGroupStage();
+    renderKnockout();
+    renderThirdPlace();
+    renderWinner();
+  }
 
   pollInterval = setInterval(async () => {
-    await Promise.all([loadGroupWinMarkets(), loadGroupQualMarkets(), loadGameMarkets(), loadWinnerMarkets(), loadEspnScoreboard(), loadEspnStandings(), loadTeamCards(), loadFifaRankings()]);
-    const activeView = document.querySelector(".nav-btn.active")?.dataset.view;
-    if (activeView === "groups") renderGroupStage();
-    else if (activeView === "thirdplace") renderThirdPlace();
-    else if (activeView === "winner") renderWinner();
+    try {
+      await Promise.all([loadGroupWinMarkets(), loadGroupQualMarkets(), loadGameMarkets(), loadWinnerMarkets(), loadEspnScoreboard(), loadEspnStandings(), loadTeamCards(), loadFifaRankings()]);
+      const activeView = document.querySelector(".nav-btn.active")?.dataset.view;
+      if (activeView === "groups") renderGroupStage();
+      else if (activeView === "thirdplace") renderThirdPlace();
+      else if (activeView === "winner") renderWinner();
+    } catch (e) {
+      console.error("Refresh failed:", e);
+    }
   }, 30000);
 }
 

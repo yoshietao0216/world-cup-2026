@@ -1,3 +1,6 @@
+import time
+import threading
+
 import requests as r
 from flask import Flask, jsonify, request, send_from_directory
 
@@ -9,6 +12,42 @@ KALSHI_SERIES = {
     "group_win": "KXWCGROUPWIN",
     "tournament_winner": "KXMENWORLDCUP",
 }
+
+_kalshi_cache = {}
+_kalshi_cache_lock = threading.Lock()
+KALSHI_CACHE_TTL = 60
+
+
+def _kalshi_cache_key(params):
+    return "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+
+
+def _get_kalshi_markets(params):
+    key = _kalshi_cache_key(params)
+    now = time.time()
+    with _kalshi_cache_lock:
+        entry = _kalshi_cache.get(key)
+        if entry and now - entry["ts"] < KALSHI_CACHE_TTL:
+            return entry["data"], 200
+
+    try:
+        resp = r.get(f"{KALSHI_BASE}/markets", params=params, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            with _kalshi_cache_lock:
+                _kalshi_cache[key] = {"data": data, "ts": now}
+            return data, 200
+        if resp.status_code == 429:
+            with _kalshi_cache_lock:
+                if entry:
+                    return entry["data"], 200
+            return {"markets": [], "cursor": ""}, 200
+        return resp.json(), resp.status_code
+    except Exception as e:
+        with _kalshi_cache_lock:
+            if entry:
+                return entry["data"], 200
+        return {"error": str(e)}, 502
 
 
 @app.route("/")
@@ -34,17 +73,14 @@ def kalshi_markets():
     if cursor:
         params["cursor"] = cursor
 
-    try:
-        resp = r.get(f"{KALSHI_BASE}/markets", params=params, timeout=10)
-        return jsonify(resp.json()), resp.status_code
-    except Exception as e:
-        return jsonify({"error": str(e)}), 502
+    data, code = _get_kalshi_markets(params)
+    return jsonify(data), code
 
 
 @app.route("/api/kalshi/markets/<ticker>")
 def kalshi_market(ticker):
     try:
-        resp = r.get(f"{KALSHI_BASE}/markets/{ticker}", timeout=10)
+        resp = r.get(f"{KALSHI_BASE}/markets/{ticker}", timeout=15)
         return jsonify(resp.json()), resp.status_code
     except Exception as e:
         return jsonify({"error": str(e)}), 502
@@ -53,7 +89,7 @@ def kalshi_market(ticker):
 @app.route("/api/kalshi/orderbook/<ticker>")
 def kalshi_orderbook(ticker):
     try:
-        resp = r.get(f"{KALSHI_BASE}/markets/{ticker}/orderbook", timeout=10)
+        resp = r.get(f"{KALSHI_BASE}/markets/{ticker}/orderbook", timeout=15)
         return jsonify(resp.json()), resp.status_code
     except Exception as e:
         return jsonify({"error": str(e)}), 502
@@ -61,29 +97,57 @@ def kalshi_orderbook(ticker):
 
 ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world"
 
+_espn_scoreboard_cache = {"data": {}, "ts": 0}
+_espn_standings_cache = {"data": {}, "ts": 0}
+
 
 @app.route("/api/espn/scoreboard")
 def espn_scoreboard():
+    now = time.time()
     dates = request.args.get("dates", "")
+    cache_key = dates or "_default"
+
+    if (now - _espn_scoreboard_cache["ts"] < 60
+            and cache_key in _espn_scoreboard_cache.get("entries", {})):
+        return jsonify(_espn_scoreboard_cache["entries"][cache_key])
+
     params = {}
     if dates:
         params["dates"] = dates
     try:
-        resp = r.get(f"{ESPN_BASE}/scoreboard", params=params, timeout=10)
-        return jsonify(resp.json()), resp.status_code
+        resp = r.get(f"{ESPN_BASE}/scoreboard", params=params, timeout=15)
+        data = resp.json()
+        if resp.status_code == 200:
+            if "entries" not in _espn_scoreboard_cache:
+                _espn_scoreboard_cache["entries"] = {}
+            _espn_scoreboard_cache["entries"][cache_key] = data
+            _espn_scoreboard_cache["ts"] = now
+        return jsonify(data), resp.status_code
     except Exception as e:
+        if "entries" in _espn_scoreboard_cache and cache_key in _espn_scoreboard_cache["entries"]:
+            return jsonify(_espn_scoreboard_cache["entries"][cache_key])
         return jsonify({"error": str(e)}), 502
 
 
 @app.route("/api/espn/standings")
 def espn_standings():
+    now = time.time()
+    if now - _espn_standings_cache["ts"] < 60 and _espn_standings_cache["data"]:
+        return jsonify(_espn_standings_cache["data"])
+
     try:
         resp = r.get(
             "https://site.api.espn.com/apis/v2/sports/soccer/fifa.world/standings",
-            timeout=10,
+            timeout=15,
         )
-        return jsonify(resp.json()), resp.status_code
+        data = resp.json()
+        if resp.status_code == 200:
+            _espn_standings_cache["data"] = data
+            _espn_standings_cache["ts"] = now
+        return jsonify(data), resp.status_code
     except Exception as e:
+        if _espn_standings_cache["data"]:
+            return jsonify(_espn_standings_cache["data"])
         return jsonify({"error": str(e)}), 502
 
 
@@ -93,13 +157,11 @@ def espn_summary():
     if not event_id:
         return jsonify({"error": "event param required"}), 400
     try:
-        resp = r.get(f"{ESPN_BASE}/summary", params={"event": event_id}, timeout=10)
+        resp = r.get(f"{ESPN_BASE}/summary", params={"event": event_id}, timeout=15)
         return jsonify(resp.json()), resp.status_code
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 
-
-import time
 
 _card_cache = {"data": {}, "ts": 0}
 _ranking_cache = {"data": {}, "ts": 0}
