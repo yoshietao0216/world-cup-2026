@@ -266,12 +266,12 @@ const TEAM_ALIASES = {
   "ir iran": "iran",
   "congo dr": "drcongo", "dr congo": "drcongo",
   "cabo verde": "capeverde", "cape verde": "capeverde",
-  "cote divoire": "ivorycoast", "ct\u00e9divoire": "ivorycoast",
+  "cote divoire": "ivorycoast", "ctedivoire": "ivorycoast",
   "ivory coast": "ivorycoast",
-  "turkiye": "turkey", "t\u00fcrkiye": "turkey",
+  "turkiye": "turkey", "trkiye": "turkey",
   "bosnia and herzegovina": "bosnia", "bosnia  herzegovina": "bosnia",
   "united states": "usa",
-  "curacao": "curacao", "cura\u00e7ao": "curacao",
+  "curacao": "curacao", "curaao": "curacao",
 };
 
 function teamNorm(s) {
