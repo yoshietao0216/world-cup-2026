@@ -494,48 +494,211 @@ function renderGroupStage() {
   });
 }
 
+function getGroupSeed(group, pos) {
+  const teams = GROUP_TEAMS[group];
+  if (!teams) return null;
+  const qualEvent = `KXWCGROUPQUAL-26${group}`;
+  const qualMarkets = Object.values(groupQualMarkets).filter(m => m.event_ticker === qualEvent);
+  const winEvent = `KXWCGROUPWIN-26${group}`;
+  const winMarkets = Object.values(groupWinMarkets).filter(m => m.event_ticker === winEvent);
+
+  if (pos === 1) {
+    const winner = winMarkets.find(m => m.result === "yes");
+    if (winner) return winner.yes_sub_title || winner.subtitle;
+  }
+
+  const sorted = [...teams].sort((a, b) => {
+    const aq = qualMarkets.find(m => m.yes_sub_title === a || m.subtitle === a);
+    const bq = qualMarkets.find(m => m.yes_sub_title === b || m.subtitle === b);
+    const ap = aq ? parseFloat(aq.last_price_dollars) : 0;
+    const bp = bq ? parseFloat(bq.last_price_dollars) : 0;
+    return bp - ap;
+  });
+  return sorted[pos - 1] || teams[pos - 1];
+}
+
 function renderKnockout() {
   const container = document.getElementById("knockout-view");
-  const koFixtures = fixturesData.filter(f => f.stage !== "group-stage");
 
-  let html = '<div class="knockout-container"><div class="knockout-rounds">';
-  for (const stage of KNOCKOUT_STAGES) {
-    const stageFixtures = koFixtures.filter(f => f.stage === stage.key);
-    html += `<div class="knockout-round">`;
-    html += `<div class="round-title">${stage.label}</div>`;
+  const R32_MATCHES = [
+    { home: "1E", away: "3rd ABCDF", section: "top-left" },
+    { home: "1I", away: "3rd CDFGH", section: "top-left" },
+    { home: "2A", away: "2B", section: "top-left" },
+    { home: "1F", away: "2C", section: "top-left" },
+    { home: "2K", away: "2L", section: "bottom-left" },
+    { home: "1H", away: "2J", section: "bottom-left" },
+    { home: "1D", away: "3rd BEFJ", section: "bottom-left" },
+    { home: "1G", away: "3rd AEHJ", section: "bottom-left" },
+    { home: "1C", away: "2F", section: "top-right" },
+    { home: "2E", away: "2I", section: "top-right" },
+    { home: "1A", away: "3rd CEFHI", section: "top-right" },
+    { home: "1L", away: "3rd EHIJK", section: "top-right" },
+    { home: "1J", away: "2H", section: "bottom-right" },
+    { home: "2D", away: "2G", section: "bottom-right" },
+    { home: "1B", away: "3rd EFGIJ", section: "bottom-right" },
+    { home: "1K", away: "3rd DEIJL", section: "bottom-right" },
+  ];
 
-    if (stageFixtures.length === 0) {
-      html += `<div style="text-align:center;color:var(--text-dim);font-size:13px;padding:20px;">TBD</div>`;
+  function resolveSeed(code) {
+    const match = code.match(/^(\d)([A-L])$/);
+    if (match) {
+      const pos = parseInt(match[1]);
+      const group = match[2];
+      const team = getGroupSeed(group, pos);
+      if (team) return { label: team, flag: flag(team), resolved: true };
+      return { label: `${ordinal(pos)} Group ${group}`, flag: "🏳️", resolved: false };
     }
-
-    for (const f of stageFixtures) {
-      const isPlaceholder = f.homeTeam.startsWith("Winner") || f.homeTeam.startsWith("Loser") || f.homeTeam.startsWith("1") || f.homeTeam.startsWith("2") || f.homeTeam.startsWith("Runner");
-      const homeFlag = isPlaceholder ? "🏳️" : flag(f.homeTeam);
-      const awayIsPlaceholder = f.awayTeam.startsWith("Winner") || f.awayTeam.startsWith("Loser") || f.awayTeam.startsWith("1") || f.awayTeam.startsWith("2") || f.awayTeam.startsWith("Runner");
-      const awayFlag = awayIsPlaceholder ? "🏳️" : flag(f.awayTeam);
-
-      const homeLabel = f.homeTeam.length > 18 ? f.homeTeam.substring(0, 16) + "…" : f.homeTeam;
-      const awayLabel = f.awayTeam.length > 18 ? f.awayTeam.substring(0, 16) + "…" : f.awayTeam;
-
-      const mData = { matchNumber: f.matchNumber, home: f.homeTeam, away: f.awayTeam, date: f.date, kickoff: f.kickoffUtc, stadium: f.stadium, stage: f.stage };
-      matchDataLookup[f.matchNumber] = mData;
-      html += `<div class="knockout-match" data-match-id="${f.matchNumber}">`;
-      html += `<div class="ko-team"><span class="team-label">${homeFlag} ${homeLabel}</span></div>`;
-      html += `<div class="ko-team"><span class="team-label">${awayFlag} ${awayLabel}</span></div>`;
-      html += `</div>`;
+    if (code.startsWith("3rd")) {
+      return { label: code, flag: "🏳️", resolved: false };
     }
+    return { label: code, flag: "🏳️", resolved: false };
+  }
+
+  let html = '<div class="knockout-container">';
+  html += '<h2 style="text-align:center;margin-bottom:8px;font-size:20px;">Knockout Bracket</h2>';
+  html += '<p style="text-align:center;color:var(--text-dim);font-size:13px;margin-bottom:6px;">Projected path assuming all group leaders advance through each round</p>';
+  html += '<p style="text-align:center;font-size:12px;margin-bottom:24px;"><span style="background:rgba(79,140,255,0.1);color:var(--accent);padding:3px 10px;border-radius:4px;font-weight:600;">⚡ POTENTIAL — Not confirmed results</span></p>';
+
+  html += '<div class="knockout-rounds">';
+
+  html += `<div class="knockout-round"><div class="round-title">Round of 32</div>`;
+  for (const m of R32_MATCHES) {
+    const home = resolveSeed(m.home);
+    const away = resolveSeed(m.away);
+    html += `<div class="knockout-match">`;
+    html += `<div class="ko-team${home.resolved ? " seed-resolved" : ""}"><span class="team-label">${home.flag} ${home.label}</span></div>`;
+    html += `<div class="ko-team${away.resolved ? " seed-resolved" : ""}"><span class="team-label">${away.flag} ${away.label}</span></div>`;
     html += `</div>`;
   }
+  html += `</div>`;
+
+  // R16: winners of R32 pairs (assuming 1st seeds advance)
+  const R16_MATCHES = [
+    { home: "1E", away: "1I", section: "top-left" },
+    { home: "1F", away: "2A", section: "top-left" },
+    { home: "1H", away: "2K", section: "bottom-left" },
+    { home: "1D", away: "1G", section: "bottom-left" },
+    { home: "1C", away: "2E", section: "top-right" },
+    { home: "1A", away: "1L", section: "top-right" },
+    { home: "1J", away: "2D", section: "bottom-right" },
+    { home: "1B", away: "1K", section: "bottom-right" },
+  ];
+  html += `<div class="knockout-round"><div class="round-title">Round of 16</div>`;
+  for (const m of R16_MATCHES) {
+    const home = resolveSeed(m.home);
+    const away = resolveSeed(m.away);
+    html += `<div class="knockout-match potential">`;
+    html += `<div class="ko-team${home.resolved ? " seed-resolved" : ""}"><span class="team-label">${home.flag} ${home.label}</span></div>`;
+    html += `<div class="ko-team${away.resolved ? " seed-resolved" : ""}"><span class="team-label">${away.flag} ${away.label}</span></div>`;
+    html += `</div>`;
+  }
+  html += `</div>`;
+
+  // QF: winners of R16 pairs (assuming 1st seeds advance)
+  const QF_MATCHES = [
+    { home: "1E", away: "1F", section: "top-left" },
+    { home: "1H", away: "1D", section: "bottom-left" },
+    { home: "1C", away: "1A", section: "top-right" },
+    { home: "1J", away: "1B", section: "bottom-right" },
+  ];
+  html += `<div class="knockout-round"><div class="round-title">Quarter-Finals</div>`;
+  for (const m of QF_MATCHES) {
+    const home = resolveSeed(m.home);
+    const away = resolveSeed(m.away);
+    html += `<div class="knockout-match potential">`;
+    html += `<div class="ko-team${home.resolved ? " seed-resolved" : ""}"><span class="team-label">${home.flag} ${home.label}</span></div>`;
+    html += `<div class="ko-team${away.resolved ? " seed-resolved" : ""}"><span class="team-label">${away.flag} ${away.label}</span></div>`;
+    html += `</div>`;
+  }
+  html += `</div>`;
+
+  // SF: winners of QF pairs (assuming 1st seeds advance)
+  const SF_MATCHES = [
+    { home: "1E", away: "1H" },
+    { home: "1C", away: "1J" },
+  ];
+  html += `<div class="knockout-round"><div class="round-title">Semi-Finals</div>`;
+  for (const m of SF_MATCHES) {
+    const home = resolveSeed(m.home);
+    const away = resolveSeed(m.away);
+    html += `<div class="knockout-match potential">`;
+    html += `<div class="ko-team${home.resolved ? " seed-resolved" : ""}"><span class="team-label">${home.flag} ${home.label}</span></div>`;
+    html += `<div class="ko-team${away.resolved ? " seed-resolved" : ""}"><span class="team-label">${away.flag} ${away.label}</span></div>`;
+    html += `</div>`;
+  }
+  html += `</div>`;
+
+  // Final + 3rd place
+  const finalHome = resolveSeed("1E");
+  const finalAway = resolveSeed("1C");
+  const thirdHome = resolveSeed("1H");
+  const thirdAway = resolveSeed("1J");
+  html += `<div class="knockout-round"><div class="round-title">Final</div>`;
+  html += `<div class="knockout-match potential">`;
+  html += `<div class="ko-team${finalHome.resolved ? " seed-resolved" : ""}"><span class="team-label">${finalHome.flag} ${finalHome.label}</span></div>`;
+  html += `<div class="ko-team${finalAway.resolved ? " seed-resolved" : ""}"><span class="team-label">${finalAway.flag} ${finalAway.label}</span></div>`;
+  html += `</div>`;
+  html += `<div class="round-title" style="margin-top:16px;">3rd Place</div>`;
+  html += `<div class="knockout-match potential">`;
+  html += `<div class="ko-team${thirdHome.resolved ? " seed-resolved" : ""}"><span class="team-label">${thirdHome.flag} ${thirdHome.label}</span></div>`;
+  html += `<div class="ko-team${thirdAway.resolved ? " seed-resolved" : ""}"><span class="team-label">${thirdAway.flag} ${thirdAway.label}</span></div>`;
+  html += `</div>`;
+  html += `</div>`;
+
   html += `</div></div>`;
-  html += `<div class="refresh-info">Click any match for live Kalshi market prices</div>`;
+  html += `<div class="refresh-info">Bracket updates as group results finalize</div>`;
   container.innerHTML = html;
 
-  container.querySelectorAll(".knockout-match").forEach(el => {
-    el.addEventListener("click", () => {
-      const data = matchDataLookup[el.dataset.matchId];
-      if (data) openMatchModal(data);
-    });
-  });
+  requestAnimationFrame(() => drawBracketLines());
+}
+
+function drawBracketLines() {
+  const container = document.querySelector(".knockout-rounds");
+  if (!container) return;
+
+  const existing = container.querySelector(".knockout-svg");
+  if (existing) existing.remove();
+
+  const rect = container.getBoundingClientRect();
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.classList.add("knockout-svg");
+  svg.setAttribute("width", rect.width);
+  svg.setAttribute("height", rect.height);
+
+  const rounds = container.querySelectorAll(".knockout-round");
+
+  for (let r = 0; r < rounds.length - 1; r++) {
+    const currentMatches = rounds[r].querySelectorAll(".knockout-match");
+    const nextMatches = rounds[r + 1].querySelectorAll(".knockout-match");
+
+    for (let i = 0; i < currentMatches.length; i += 2) {
+      const top = currentMatches[i];
+      const bottom = currentMatches[i + 1];
+      const target = nextMatches[Math.floor(i / 2)];
+
+      if (!top || !bottom || !target) continue;
+
+      const topRect = top.getBoundingClientRect();
+      const bottomRect = bottom.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+
+      const x1 = topRect.right - rect.left;
+      const y1 = topRect.top + topRect.height / 2 - rect.top;
+      const y2 = bottomRect.top + bottomRect.height / 2 - rect.top;
+      const x2 = targetRect.left - rect.left;
+      const yMid = (y1 + y2) / 2;
+      const xMid = (x1 + x2) / 2;
+
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", `M${x1},${y1} H${xMid} V${y2} M${x1},${y2} H${xMid} M${xMid},${yMid} H${x2}`);
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", "rgba(79,140,255,0.35)");
+      path.setAttribute("stroke-width", "2");
+      svg.appendChild(path);
+    }
+  }
+
+  container.prepend(svg);
 }
 
 function renderWinner() {
