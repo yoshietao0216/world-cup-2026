@@ -1006,8 +1006,131 @@ function setupModal() {
   });
 }
 
+function renderLive() {
+  const container = document.getElementById("live-view");
+  const now = new Date();
+
+  const liveMatches = [];
+  const upcomingMatches = [];
+  const recentMatches = [];
+
+  for (const f of fixturesData) {
+    if (f.stage !== "group-stage" && f.homeTeam.startsWith("Winner")) continue;
+    const espn = findEspnEvent(f.homeTeam, f.awayTeam);
+    if (espn) {
+      if (espn.status === "STATUS_IN_PROGRESS" || espn.status === "STATUS_HALFTIME" ||
+          espn.status === "STATUS_FIRST_HALF" || espn.status === "STATUS_SECOND_HALF") {
+        liveMatches.push({ fixture: f, espn });
+        continue;
+      } else if (espn.status === "STATUS_FULL_TIME" || espn.status === "STATUS_FINAL") {
+        recentMatches.push({ fixture: f, espn });
+        continue;
+      }
+    }
+    const kickoff = new Date(f.kickoffUtc);
+    if (kickoff >= new Date(now.getTime() - 3 * 60 * 60 * 1000)) {
+      upcomingMatches.push({ fixture: f, kickoff });
+    }
+  }
+
+  upcomingMatches.sort((a, b) => a.kickoff - b.kickoff);
+  recentMatches.sort((a, b) => {
+    const aDate = new Date(a.fixture.kickoffUtc);
+    const bDate = new Date(b.fixture.kickoffUtc);
+    return bDate - aDate;
+  });
+
+  let html = "";
+
+  if (liveMatches.length > 0) {
+    html += `<div class="live-section"><h2 class="live-section-title"><span class="live-dot"></span> Live Now</h2>`;
+    html += `<div class="live-matches-grid">`;
+    for (const { fixture: f, espn } of liveMatches) {
+      const statusText = espn.status === "STATUS_HALFTIME" ? "HT" : espn.clock || "LIVE";
+      const stageLabel = f.stage === "group-stage" ? `Group ${f.group}` : f.stage.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+      const mData = { matchNumber: f.matchNumber, home: f.homeTeam, away: f.awayTeam, date: f.date, kickoff: f.kickoffUtc, stadium: f.stadium, group: f.group, stage: f.stage };
+      matchDataLookup[f.matchNumber] = mData;
+      html += `<div class="live-match-card" data-match-id="${f.matchNumber}">`;
+      html += `<div class="live-match-stage">${stageLabel}</div>`;
+      html += `<div class="live-match-body">`;
+      html += `<div class="live-team"><span class="flag-med">${flag(f.homeTeam)}</span><span class="live-team-name">${f.homeTeam}</span><span class="live-score">${espn.homeScore}</span></div>`;
+      html += `<div class="live-team"><span class="flag-med">${flag(f.awayTeam)}</span><span class="live-team-name">${f.awayTeam}</span><span class="live-score">${espn.awayScore}</span></div>`;
+      html += `</div>`;
+      html += `<div class="live-match-footer"><span class="match-status live">${statusText}</span><span class="live-stadium">${f.stadium || ""}</span></div>`;
+      html += `</div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  if (upcomingMatches.length > 0) {
+    const showUpcoming = upcomingMatches.slice(0, 8);
+    html += `<div class="live-section"><h2 class="live-section-title">Upcoming</h2>`;
+    html += `<div class="live-matches-grid">`;
+    for (const { fixture: f, kickoff } of showUpcoming) {
+      const stageLabel = f.stage === "group-stage" ? `Group ${f.group}` : f.stage.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+      const markets = findGameMarketsForFixture(f);
+      const homeMarket = markets.find(m => m.ticker.endsWith(`-${kalshiCode(f.homeTeam)}`));
+      const awayMarket = markets.find(m => m.ticker.endsWith(`-${kalshiCode(f.awayTeam)}`));
+      const mData = { matchNumber: f.matchNumber, home: f.homeTeam, away: f.awayTeam, date: f.date, kickoff: f.kickoffUtc, stadium: f.stadium, group: f.group, stage: f.stage };
+      matchDataLookup[f.matchNumber] = mData;
+      html += `<div class="live-match-card upcoming-card" data-match-id="${f.matchNumber}">`;
+      html += `<div class="live-match-stage">${stageLabel} &bull; ${formatDate(f.kickoffUtc)}</div>`;
+      html += `<div class="live-match-body">`;
+      html += `<div class="live-team"><span class="flag-med">${flag(f.homeTeam)}</span><span class="live-team-name">${f.homeTeam}</span>`;
+      if (homeMarket) html += `<span class="live-odds ${priceClass(homeMarket.last_price_dollars)}">${formatPct(homeMarket.last_price_dollars)}</span>`;
+      html += `</div>`;
+      html += `<div class="live-team"><span class="flag-med">${flag(f.awayTeam)}</span><span class="live-team-name">${f.awayTeam}</span>`;
+      if (awayMarket) html += `<span class="live-odds ${priceClass(awayMarket.last_price_dollars)}">${formatPct(awayMarket.last_price_dollars)}</span>`;
+      html += `</div>`;
+      html += `</div>`;
+      html += `<div class="live-match-footer"><span class="match-status upcoming">${formatTime(f.kickoffUtc)}</span><span class="live-stadium">${f.stadium || ""}</span></div>`;
+      html += `</div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  if (recentMatches.length > 0) {
+    const showRecent = recentMatches.slice(0, 8);
+    html += `<div class="live-section"><h2 class="live-section-title">Recent Results</h2>`;
+    html += `<div class="live-matches-grid">`;
+    for (const { fixture: f, espn } of showRecent) {
+      const stageLabel = f.stage === "group-stage" ? `Group ${f.group}` : f.stage.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+      const mData = { matchNumber: f.matchNumber, home: f.homeTeam, away: f.awayTeam, date: f.date, kickoff: f.kickoffUtc, stadium: f.stadium, group: f.group, stage: f.stage };
+      matchDataLookup[f.matchNumber] = mData;
+      html += `<div class="live-match-card finished-card" data-match-id="${f.matchNumber}">`;
+      html += `<div class="live-match-stage">${stageLabel} &bull; ${formatDate(f.kickoffUtc)}</div>`;
+      html += `<div class="live-match-body">`;
+      html += `<div class="live-team"><span class="flag-med">${flag(f.homeTeam)}</span><span class="live-team-name">${f.homeTeam}</span><span class="live-score">${espn.homeScore}</span></div>`;
+      html += `<div class="live-team"><span class="flag-med">${flag(f.awayTeam)}</span><span class="live-team-name">${f.awayTeam}</span><span class="live-score">${espn.awayScore}</span></div>`;
+      html += `</div>`;
+      html += `<div class="live-match-footer"><span class="match-status finished">FT</span><span class="live-stadium">${f.stadium || ""}</span></div>`;
+      html += `</div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  if (!html) {
+    html = `<div style="text-align:center;padding:60px 20px;color:var(--text-dim);">
+      <div style="font-size:48px;margin-bottom:16px;">⚽</div>
+      <h2 style="font-size:20px;color:var(--text);margin-bottom:8px;">No Live Matches Right Now</h2>
+      <p>Check the Group Stage tab for upcoming fixtures and market prices.</p>
+    </div>`;
+  }
+
+  html += `<div class="refresh-info">Updates every 30 seconds &bull; Click any match for details</div>`;
+  container.innerHTML = html;
+
+  container.querySelectorAll(".live-match-card").forEach(el => {
+    el.addEventListener("click", () => {
+      const data = matchDataLookup[el.dataset.matchId];
+      if (data) openMatchModal(data);
+    });
+  });
+}
+
 async function refreshData() {
   await Promise.all([loadGroupWinMarkets(), loadGroupQualMarkets(), loadGameMarkets(), loadWinnerMarkets(), loadEspnScoreboard(), loadEspnStandings(), loadTeamCards(), loadFifaRankings()]);
+  renderLive();
   renderGroupStage();
   renderKnockout();
   renderThirdPlace();
@@ -1018,7 +1141,7 @@ async function init() {
   setupNav();
   setupModal();
 
-  document.getElementById("groups-view").innerHTML = `<div class="loading-spinner">Loading World Cup data</div>`;
+  document.getElementById("live-view").innerHTML = `<div class="loading-spinner">Loading World Cup data</div>`;
 
   await loadFixtures();
   if (fixturesData.length === 0) fixturesData = generateFallbackFixtures();
@@ -1027,6 +1150,7 @@ async function init() {
     await refreshData();
   } catch (e) {
     console.error("Initial data load failed:", e);
+    renderLive();
     renderGroupStage();
     renderKnockout();
     renderThirdPlace();
@@ -1037,7 +1161,8 @@ async function init() {
     try {
       await Promise.all([loadGroupWinMarkets(), loadGroupQualMarkets(), loadGameMarkets(), loadWinnerMarkets(), loadEspnScoreboard(), loadEspnStandings(), loadTeamCards(), loadFifaRankings()]);
       const activeView = document.querySelector(".nav-btn.active")?.dataset.view;
-      if (activeView === "groups") renderGroupStage();
+      if (activeView === "live") renderLive();
+      else if (activeView === "groups") renderGroupStage();
       else if (activeView === "thirdplace") renderThirdPlace();
       else if (activeView === "winner") renderWinner();
     } catch (e) {
