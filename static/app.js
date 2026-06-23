@@ -1128,6 +1128,160 @@ function renderLive() {
   });
 }
 
+function renderSearch() {
+  const container = document.getElementById("search-view");
+  const allTeams = Object.keys(TEAM_FLAGS);
+
+  container.innerHTML = `
+    <div class="search-container">
+      <div class="search-input-wrap">
+        <input type="text" id="team-search-input" class="team-search-input" placeholder="Search for a country (e.g. fra, arg, usa)..." autocomplete="off">
+        <div id="search-suggestions" class="search-suggestions hidden"></div>
+      </div>
+      <div id="team-results"></div>
+    </div>
+  `;
+
+  const input = document.getElementById("team-search-input");
+  const suggestions = document.getElementById("search-suggestions");
+  const results = document.getElementById("team-results");
+
+  input.addEventListener("input", () => {
+    const q = input.value.trim().toLowerCase();
+    if (q.length === 0) {
+      suggestions.classList.add("hidden");
+      return;
+    }
+
+    const matches = allTeams.filter(t => {
+      const name = t.toLowerCase();
+      const code = (TEAM_TO_KALSHI[t] || "").toLowerCase();
+      return name.startsWith(q) || name.includes(q) || code.startsWith(q) || teamNorm(t).startsWith(q);
+    });
+
+    if (matches.length === 0) {
+      suggestions.innerHTML = `<div class="suggestion-item disabled">No teams found</div>`;
+      suggestions.classList.remove("hidden");
+      return;
+    }
+
+    suggestions.innerHTML = matches.map(t =>
+      `<div class="suggestion-item" data-team="${escapeAttr(t)}">${flag(t)} ${t} <span class="suggestion-code">${TEAM_TO_KALSHI[t] || ""}</span></div>`
+    ).join("");
+    suggestions.classList.remove("hidden");
+
+    suggestions.querySelectorAll(".suggestion-item[data-team]").forEach(el => {
+      el.addEventListener("click", () => {
+        input.value = el.dataset.team;
+        suggestions.classList.add("hidden");
+        renderTeamMatches(el.dataset.team, results);
+      });
+    });
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      const q = input.value.trim().toLowerCase();
+      const match = allTeams.find(t => {
+        const name = t.toLowerCase();
+        const code = (TEAM_TO_KALSHI[t] || "").toLowerCase();
+        return name === q || code === q || name.startsWith(q);
+      });
+      if (match) {
+        input.value = match;
+        suggestions.classList.add("hidden");
+        renderTeamMatches(match, results);
+      }
+    }
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".search-input-wrap")) {
+      suggestions.classList.add("hidden");
+    }
+  });
+}
+
+function renderTeamMatches(team, container) {
+  const teamFixtures = fixturesData.filter(f =>
+    teamsMatch(f.homeTeam, team) || teamsMatch(f.awayTeam, team)
+  );
+
+  if (teamFixtures.length === 0) {
+    container.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-dim);">No matches found for ${flag(team)} ${team}</div>`;
+    return;
+  }
+
+  const rank = fifaRank(team);
+  const cards = getCards(team);
+  const groupEntry = Object.entries(GROUP_TEAMS).find(([, teams]) => teams.includes(team));
+  const group = groupEntry ? groupEntry[0] : null;
+
+  let html = `<div class="team-header-card">`;
+  html += `<div class="team-header-info">`;
+  html += `<span class="team-header-flag">${flag(team)}</span>`;
+  html += `<div><h2 class="team-header-name">${team}</h2>`;
+  html += `<div class="team-header-meta">`;
+  if (group) html += `Group ${group}`;
+  if (rank) html += `${group ? " &bull; " : ""}FIFA Rank: ${ordinal(rank)}`;
+  if (cards) html += ` &bull; Cards: <span class="yc">${cards.yellow}Y</span>${cards.red ? ` <span class="rc">${cards.red}R</span>` : ""}`;
+  html += `</div></div></div></div>`;
+
+  teamFixtures.sort((a, b) => new Date(a.kickoffUtc) - new Date(b.kickoffUtc));
+
+  html += `<div class="team-matches-list">`;
+  for (const f of teamFixtures) {
+    const isHome = teamsMatch(f.homeTeam, team);
+    const opponent = isHome ? f.awayTeam : f.homeTeam;
+    const espn = findEspnEvent(f.homeTeam, f.awayTeam);
+    const stageLabel = f.stage === "group-stage" ? `Group ${f.group}` : f.stage.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+
+    let statusHtml = "";
+    let scoreHtml = "";
+    if (espn && (espn.status === "STATUS_FULL_TIME" || espn.status === "STATUS_FINAL")) {
+      const teamScore = isHome ? espn.homeScore : espn.awayScore;
+      const oppScore = isHome ? espn.awayScore : espn.homeScore;
+      scoreHtml = `<span class="team-match-score">${teamScore} - ${oppScore}</span>`;
+      const won = parseInt(teamScore) > parseInt(oppScore);
+      const drew = teamScore === oppScore;
+      statusHtml = `<span class="team-match-result ${won ? "win" : drew ? "draw" : "loss"}">${won ? "W" : drew ? "D" : "L"}</span>`;
+    } else if (espn && (espn.status === "STATUS_IN_PROGRESS" || espn.status === "STATUS_HALFTIME")) {
+      const teamScore = isHome ? espn.homeScore : espn.awayScore;
+      const oppScore = isHome ? espn.awayScore : espn.homeScore;
+      scoreHtml = `<span class="team-match-score">${teamScore} - ${oppScore}</span>`;
+      statusHtml = `<span class="match-status live">LIVE</span>`;
+    } else {
+      const markets = findGameMarketsForFixture(f);
+      const teamMarket = markets.find(m => m.ticker.endsWith(`-${kalshiCode(team)}`));
+      if (teamMarket) {
+        statusHtml = `<span class="live-odds ${priceClass(teamMarket.last_price_dollars)}">${formatPct(teamMarket.last_price_dollars)}</span>`;
+      } else {
+        statusHtml = `<span class="match-status upcoming">Upcoming</span>`;
+      }
+    }
+
+    const mData = { matchNumber: f.matchNumber, home: f.homeTeam, away: f.awayTeam, date: f.date, kickoff: f.kickoffUtc, stadium: f.stadium, group: f.group, stage: f.stage };
+    matchDataLookup[f.matchNumber] = mData;
+
+    html += `<div class="team-match-row" data-match-id="${f.matchNumber}">`;
+    html += `<div class="team-match-date">${formatDate(f.kickoffUtc)}</div>`;
+    html += `<div class="team-match-stage">${stageLabel}</div>`;
+    html += `<div class="team-match-opponent">${isHome ? "vs" : "@"} ${flag(opponent)} ${opponent}</div>`;
+    html += `<div class="team-match-status">${scoreHtml}${statusHtml}</div>`;
+    html += `</div>`;
+  }
+  html += `</div>`;
+
+  container.innerHTML = html;
+
+  container.querySelectorAll(".team-match-row").forEach(el => {
+    el.addEventListener("click", () => {
+      const data = matchDataLookup[el.dataset.matchId];
+      if (data) openMatchModal(data);
+    });
+  });
+}
+
 async function refreshData() {
   await Promise.all([loadGroupWinMarkets(), loadGroupQualMarkets(), loadGameMarkets(), loadWinnerMarkets(), loadEspnScoreboard(), loadEspnStandings(), loadTeamCards(), loadFifaRankings()]);
   renderLive();
@@ -1135,6 +1289,7 @@ async function refreshData() {
   renderKnockout();
   renderThirdPlace();
   renderWinner();
+  renderSearch();
 }
 
 async function init() {
@@ -1155,6 +1310,7 @@ async function init() {
     renderKnockout();
     renderThirdPlace();
     renderWinner();
+    renderSearch();
   }
 
   pollInterval = setInterval(async () => {
