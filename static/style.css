@@ -14,6 +14,27 @@
   --yellow: #eab308;
   --gold: #fbbf24;
   --radius: 12px;
+  --header-bg: linear-gradient(135deg, #0f1629 0%, #1a1f3a 100%);
+  --modal-backdrop: rgba(0, 0, 0, 0.7);
+  --ko-line: rgba(79, 140, 255, 0.35);
+}
+
+[data-theme="light"] {
+  --bg: #f0f2f5;
+  --surface: #ffffff;
+  --surface2: #e8ecf1;
+  --border: #d0d5dd;
+  --text: #1a1d26;
+  --text-dim: #5f6980;
+  --accent: #2563eb;
+  --accent2: #6d3fcf;
+  --green: #16a34a;
+  --red: #dc2626;
+  --yellow: #ca8a04;
+  --gold: #d97706;
+  --header-bg: linear-gradient(135deg, #e0e6f0 0%, #f0f2f5 100%);
+  --modal-backdrop: rgba(0, 0, 0, 0.35);
+  --ko-line: rgba(37, 99, 235, 0.3);
 }
 
 body {
@@ -25,7 +46,7 @@ body {
 }
 
 header {
-  background: linear-gradient(135deg, #0f1629 0%, #1a1f3a 100%);
+  background: var(--header-bg);
   border-bottom: 1px solid var(--border);
   padding: 24px 32px 0;
   position: sticky;
@@ -33,9 +54,29 @@ header {
   z-index: 100;
 }
 
-.header-content { text-align: center; padding-bottom: 16px; }
+.header-content { text-align: center; padding-bottom: 16px; position: relative; }
 h1 { font-size: 28px; font-weight: 800; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
 .subtitle { color: var(--text-dim); font-size: 14px; margin-top: 4px; }
+
+.theme-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+  line-height: 1;
+}
+.theme-toggle:hover { border-color: var(--accent); color: var(--text); }
 
 nav {
   display: flex;
@@ -324,7 +365,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 24px 16px; }
 /* Modal */
 .modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; }
 .modal.hidden { display: none; }
-.modal-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px); }
+.modal-backdrop { position: absolute; inset: 0; background: var(--modal-backdrop); backdrop-filter: blur(4px); }
 
 .modal-content {
   position: relative;

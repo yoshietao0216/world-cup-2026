@@ -70,8 +70,10 @@ function escapeAttr(s) {
   return s.replace(/&/g, "&amp;").replace(/'/g, "&#39;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function flag(team) { return TEAM_FLAGS[team] || "🏳️"; }
-function kalshiCode(team) { return TEAM_TO_KALSHI[team] || team.substring(0, 3).toUpperCase(); }
+function kalshiCode(team) {
+  const name = resolveTeamName(team);
+  return TEAM_TO_KALSHI[name] || TEAM_TO_KALSHI[team] || team.substring(0, 3).toUpperCase();
+}
 function ordinal(n) { const s = ["th","st","nd","rd"]; return n + (s[(n%100-20)%10] || s[n%100] || s[0]); }
 
 const FIFA_NAME_MAP = {
@@ -272,7 +274,7 @@ const TEAM_ALIASES = {
   "cote divoire": "ivorycoast", "ctedivoire": "ivorycoast",
   "ivory coast": "ivorycoast",
   "turkiye": "turkey", "trkiye": "turkey",
-  "bosnia and herzegovina": "bosnia", "bosnia  herzegovina": "bosnia",
+  "bosnia and herzegovina": "bosnia", "bosnia  herzegovina": "bosnia", "bosnia herzegovina": "bosnia", "bosniaherzegovina": "bosnia",
   "united states": "usa",
   "curacao": "curacao", "curaao": "curacao",
 };
@@ -289,6 +291,63 @@ function teamsMatch(a, b) {
   const na = teamNorm(a);
   const nb = teamNorm(b);
   return na === nb || na.includes(nb) || nb.includes(na);
+}
+
+const TEAM_NAME_ALIASES = {
+  "Cote d'Ivoire": "Côte d'Ivoire",
+  "Turkiye": "Türkiye",
+  "Curacao": "Curaçao",
+};
+
+function resolveTeamName(team) {
+  if (!team) return team;
+  if (TEAM_NAME_ALIASES[team]) return TEAM_NAME_ALIASES[team];
+  if (TEAM_FLAGS[team]) return team;
+  for (const canonical of Object.keys(TEAM_FLAGS)) {
+    if (teamsMatch(team, canonical)) return canonical;
+  }
+  return team;
+}
+
+function flag(team) {
+  const name = resolveTeamName(team);
+  return TEAM_FLAGS[name] || "🏳️";
+}
+
+function findTeamMarket(markets, team) {
+  return markets.find(m => {
+    const sub = m.yes_sub_title || m.subtitle || "";
+    if (teamsMatch(sub, team)) return true;
+    const code = kalshiCode(team);
+    return code && m.ticker && m.ticker.endsWith(`-${code}`);
+  });
+}
+
+function qualAdvanceSortValue(qualMarket) {
+  if (!qualMarket) return [-1, 0];
+  if (qualMarket.result === "yes") return [2, 1];
+  if (qualMarket.result === "no") return [0, 0];
+  const p = parseFloat(qualMarket.last_price_dollars);
+  return [1, isNaN(p) ? 0 : p];
+}
+
+function groupStandingsSortValue(winMarket, qualMarket) {
+  const winTier = winMarket && winMarket.result === "yes" ? 1 : 0;
+  const [qualTier, qualProb] = qualAdvanceSortValue(qualMarket);
+  return [winTier, qualTier, qualProb];
+}
+
+function groupSeedSortValue(winMarket, qualMarket) {
+  const isWon = winMarket && winMarket.result === "yes";
+  const isQual = qualMarket && qualMarket.result === "yes";
+  const isOut = qualMarket && qualMarket.result === "no";
+  const p = qualMarket ? parseFloat(qualMarket.last_price_dollars) : 0;
+  const prob = isNaN(p) ? 0 : p;
+
+  if (isQual && isWon) return [3, 1];
+  if (isQual) return [2, 1];
+  if (isOut) return [0, 0];
+  return [1, prob];
 }
 
 function findEspnEvent(home, away) {
@@ -418,16 +477,20 @@ function renderGroupStage() {
 
     html += `<div class="group-standings"><table><tr><th>Team</th><th>Advance</th><th>Win Group</th></tr>`;
     const sortedTeams = [...teams].sort((a, b) => {
-      const aq = qualMarketsList.find(m => m.yes_sub_title === a || m.subtitle === a);
-      const bq = qualMarketsList.find(m => m.yes_sub_title === b || m.subtitle === b);
-      const ap = aq ? parseFloat(aq.last_price_dollars) : 0;
-      const bp = bq ? parseFloat(bq.last_price_dollars) : 0;
+      const aw = findTeamMarket(groupMarketsList, a);
+      const bw = findTeamMarket(groupMarketsList, b);
+      const aq = findTeamMarket(qualMarketsList, a);
+      const bq = findTeamMarket(qualMarketsList, b);
+      const [awt, aqt, ap] = groupStandingsSortValue(aw, aq);
+      const [bwt, bqt, bp] = groupStandingsSortValue(bw, bq);
+      if (bwt !== awt) return bwt - awt;
+      if (bqt !== aqt) return bqt - aqt;
       return bp - ap;
     });
 
     for (const team of sortedTeams) {
-      const market = groupMarketsList.find(m => m.yes_sub_title === team || m.subtitle === team);
-      const qualMarket = qualMarketsList.find(m => m.yes_sub_title === team || m.subtitle === team);
+      const market = findTeamMarket(groupMarketsList, team);
+      const qualMarket = findTeamMarket(qualMarketsList, team);
       const price = market ? market.last_price_dollars : null;
       const qualPrice = qualMarket ? qualMarket.last_price_dollars : null;
       const isWinner = market && market.result === "yes";
@@ -497,23 +560,23 @@ function renderGroupStage() {
 function getGroupSeed(group, pos) {
   const teams = GROUP_TEAMS[group];
   if (!teams) return null;
+
   const qualEvent = `KXWCGROUPQUAL-26${group}`;
   const qualMarkets = Object.values(groupQualMarkets).filter(m => m.event_ticker === qualEvent);
   const winEvent = `KXWCGROUPWIN-26${group}`;
   const winMarkets = Object.values(groupWinMarkets).filter(m => m.event_ticker === winEvent);
 
-  if (pos === 1) {
-    const winner = winMarkets.find(m => m.result === "yes");
-    if (winner) return winner.yes_sub_title || winner.subtitle;
-  }
-
   const sorted = [...teams].sort((a, b) => {
-    const aq = qualMarkets.find(m => m.yes_sub_title === a || m.subtitle === a);
-    const bq = qualMarkets.find(m => m.yes_sub_title === b || m.subtitle === b);
-    const ap = aq ? parseFloat(aq.last_price_dollars) : 0;
-    const bp = bq ? parseFloat(bq.last_price_dollars) : 0;
+    const aw = findTeamMarket(winMarkets, a);
+    const bw = findTeamMarket(winMarkets, b);
+    const aq = findTeamMarket(qualMarkets, a);
+    const bq = findTeamMarket(qualMarkets, b);
+    const [at, ap] = groupSeedSortValue(aw, aq);
+    const [bt, bp] = groupSeedSortValue(bw, bq);
+    if (bt !== at) return bt - at;
     return bp - ap;
   });
+
   return sorted[pos - 1] || teams[pos - 1];
 }
 
@@ -692,7 +755,7 @@ function drawBracketLines() {
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("d", `M${x1},${y1} H${xMid} V${y2} M${x1},${y2} H${xMid} M${xMid},${yMid} H${x2}`);
       path.setAttribute("fill", "none");
-      path.setAttribute("stroke", "rgba(79,140,255,0.35)");
+      path.setAttribute("stroke", getComputedStyle(document.documentElement).getPropertyValue("--ko-line").trim() || "rgba(79,140,255,0.35)");
       path.setAttribute("stroke-width", "2");
       svg.appendChild(path);
     }
@@ -752,10 +815,7 @@ function renderThirdPlace() {
     const qualMarkets = Object.values(groupQualMarkets).filter(m => m.event_ticker === qualEvent);
 
     for (const entry of g.entries) {
-      const findMarket = (markets) => markets.find(m => {
-        const sub = m.yes_sub_title || m.subtitle || "";
-        return teamsMatch(sub, entry.team);
-      });
+      const findMarket = (markets) => findTeamMarket(markets, entry.team);
 
       const qualMarket = findMarket(qualMarkets);
       const advanceProb = qualMarket ? parseFloat(qualMarket.last_price_dollars) : null;
@@ -1455,7 +1515,29 @@ async function refreshData() {
   renderSearch();
 }
 
+function setupThemeToggle() {
+  const btn = document.getElementById("theme-toggle");
+  const stored = localStorage.getItem("theme");
+  if (stored === "light") {
+    document.documentElement.setAttribute("data-theme", "light");
+    btn.textContent = "🌙";
+  }
+  btn.addEventListener("click", () => {
+    const isLight = document.documentElement.getAttribute("data-theme") === "light";
+    if (isLight) {
+      document.documentElement.removeAttribute("data-theme");
+      localStorage.setItem("theme", "dark");
+      btn.textContent = "☀️";
+    } else {
+      document.documentElement.setAttribute("data-theme", "light");
+      localStorage.setItem("theme", "light");
+      btn.textContent = "🌙";
+    }
+  });
+}
+
 async function init() {
+  setupThemeToggle();
   setupNav();
   setupModal();
 
